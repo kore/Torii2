@@ -1,0 +1,176 @@
+#!/usr/bin/env php
+<?php
+
+$searchDirectory = $argv[1] ?? realpath(__DIR__ . '/..');
+
+$allFilesWithoutGitIgnored = array_filter(array_map('trim', preg_split('(\\r\\n|\\r|\\n)', `ag -l class $searchDirectory`)));
+
+$types = [];
+
+$typeMap = [
+    '9d2e1f5b' => ['name' => 'todo__input'],
+    '71e8afd8' => ['name' => 'todo__input--grow', 'source' => '.todo__input grow'],
+];
+
+asort($typeMap);
+
+function arrayDifference(array $array1, array $array2): int {
+    return count(array_diff($array1, $array2)) + count(array_diff($array2, $array1));
+}
+
+function findLineNumbers(string $file, string $needle): array {
+    $needle = preg_split('(\\r\\n|\\r|\\n)', trim($needle))[0];
+
+    $lineNumbers = [];
+    foreach (file($file) as $line => $content) {
+        if (strpos($content, $needle) !== false) {
+            $lineNumbers[] = $line + 1;
+        }
+    }
+
+    return $lineNumbers;
+}
+
+function formatString($string, $color, $isBold = false) {
+    $colors = [
+        'black' => '30',
+        'red' => '31',
+        'green' => '32',
+        'yellow' => '33',
+        'blue' => '34',
+        'magenta' => '35',
+        'cyan' => '36',
+        'white' => '37'
+    ];
+
+    if (!array_key_exists($color, $colors)) {
+        return $string; // Return the original string if color not found
+    }
+
+    return "\033[" . ((int) $isBold) . ";" . $colors[$color] . "m" . $string . "\033[0m";
+}
+
+
+foreach ($allFilesWithoutGitIgnored as $file)
+{
+    $fileContent = file_get_contents($file);
+    $fileName = str_replace($searchDirectory . '/', '', $file);
+
+    preg_match_all('(class(?:Name)=["\'](?P<classes>[^"\']+)["\'])', $fileContent, $matches, PREG_SET_ORDER);
+    foreach ($matches as $matchSet) {
+        $classes = array_filter(array_map('strtolower', array_map('trim', preg_split('(\\s+)', $matchSet['classes']))));
+        sort($classes);
+
+        $types[] = (object) [
+            'files' => array_map(
+                function ($lineNumber) use ($fileName) {
+                    return $fileName . ' +' . $lineNumber;
+                },
+                findLineNumbers($file, $matchSet['classes'])
+            ),
+            'type' => 'static',
+            'hash' => substr(md5(implode(',', $classes)), 0, 8),
+            'classes' => $classes,
+            'source' => $matchSet['classes'],
+        ];
+    }
+
+    preg_match_all('(class(?:Name)=\\{(?P<classes>[^}]+)\\})', $fileContent, $matches, PREG_SET_ORDER);
+    foreach ($matches as $matchSet) {
+        preg_match_all('((["\'`])(?P<classes>[^"\'`]+)\1)', $matchSet['classes'], $innerMatches, PREG_SET_ORDER);
+        foreach ($innerMatches as $innerMatchSet) {
+            $classes = array_filter(array_map('strtolower', array_map('trim', preg_split('(\\s+)', $innerMatchSet['classes']))));
+            sort($classes);
+
+            $types[] = (object) [
+                'files' => array_map(
+                    function ($lineNumber) use ($fileName) {
+                        return $fileName . ' +' . $lineNumber;
+                    },
+                    findLineNumbers($file, $matchSet['classes'])
+                ),
+                'type' => 'dynamic',
+                'hash' => substr(md5(implode(',', $classes)), 0, 8),
+                'classes' => $classes,
+                'source' => $matchSet['classes'],
+            ];
+        }
+    }
+}
+
+$groupedTypes = []; // Numerically indexed array for the loops below
+$groupedTypesIndexByHash = []; // Map of hashes to nuzmeric indices for the array above
+foreach ($types as $type) {
+    if (isset($groupedTypesIndexByHash[$type->hash])) {
+        $groupedTypes[$groupedTypesIndexByHash[$type->hash]]->sources[] = $type->source;
+        $groupedTypes[$groupedTypesIndexByHash[$type->hash]]->files += $type->files;
+    } else {
+        $type->sources = [$type->source];
+        unset($type->source);
+
+        $type->related = [];
+
+        $groupedTypesIndexByHash[$type->hash] = count($groupedTypes);
+        $groupedTypes[] = $type;
+    }
+}
+
+for ($i = 0; $i < count($groupedTypes); ++$i) {
+    $groupedTypes[$i]->files = array_unique($groupedTypes[$i]->files);
+
+    for ($j = 0; $j < count($groupedTypes); ++$j) {
+        if ($i === $j) continue;
+
+        $classDistance = arrayDifference($groupedTypes[$i]->classes, $groupedTypes[$j]->classes);
+        if ($classDistance < min(count($groupedTypes[$i]->classes), count($groupedTypes[$j]->classes))) {
+            $groupedTypes[$i]->related[$groupedTypes[$j]->hash] = $classDistance;
+        }
+    }
+
+    asort($groupedTypes[$i]->related);
+}
+
+uasort($groupedTypes, fn($a, $b) => count($a->sources) <=> count($b->sources));
+
+foreach ($groupedTypes as $type) {
+    // Ignore already named types
+    if (isset($typeMap[$type->hash])) continue;
+
+    printf(
+        " * %s: %s (%d): %s\n",
+        $type->hash,
+        formatString(implode(' ', $type->classes), 'black', true),
+        count($type->sources),
+        implode(', ', $type->files)
+    );
+
+    foreach ($type->related as $relatedTypeHash => $distance) {
+        $relatedType = $groupedTypes[$groupedTypesIndexByHash[$relatedTypeHash]];
+
+        printf(
+            "   => %s %d: %s %s (%d): %s\n",
+            $typeMap[$relatedTypeHash] ?? $relatedTypeHash,
+            $distance,
+            implode(' ', array_map(
+                function (string $className) use ($type) {
+                    return in_array($className, $type->classes) ? formatString($className, 'black', true) : formatString($className, 'green');
+                },
+                $relatedType->classes
+            )),
+            formatString(implode(', ', array_diff($type->classes, $relatedType->classes)), 'red'),
+            count($relatedType->sources),
+            implode(', ', $relatedType->files)
+        );
+    }
+}
+
+$cssFileContent = '';
+foreach ($typeMap as $hash => $definition) {
+    $cssFileContent .= sprintf(
+        ".%s {\n  @apply %s;\n}\n\n",
+        $definition['name'],
+        $definition['source'] ?? implode(' ', $groupedTypes[$groupedTypesIndexByHash[$hash]]->classes)
+    );
+}
+file_put_contents('styles/default.scss', trim($cssFileContent) . "\n");
+

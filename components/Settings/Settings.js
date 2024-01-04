@@ -91,15 +91,71 @@ export default function Settings({ settings, setSettings }) {
           </div>
 
           <h2 className="col-span-12 text-lg font-medium leading-6 text-gray-900 dark:text-gray-100">
-            Background
+            Theming
           </h2>
 
+          <div className="col-span-3">
+            <label
+              htmlFor="theme"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-200"
+            >
+              Theme
+            </label>
+            <select
+              type="text"
+              name="theme"
+              id="theme"
+              value={settings.theme ?? ""}
+              onChange={(event) => setSetting("theme", event.target.value)}
+              className="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm"
+            >
+              <option value="">Default</option>
+              <option value="black">Black</option>
+            </select>
+          </div>
+
+          <div className="col-span-7">
+            <label
+              htmlFor="theme-css"
+              className="block text-sm font-medium text-gray-700 dark:text-gray-200"
+            >
+              Theme CSS file (URL)
+            </label>
+            <input
+              type="text"
+              name="theme-css"
+              id="theme-css"
+              placeholder="CSS file URL"
+              value={settings.themeCssFile ?? ""}
+              onChange={(event) =>
+                setSetting("themeCssFile", event.target.value)
+              }
+              className="mt-1 block w-full rounded-md border border-gray-300 py-2 px-3 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-primary-500 dark:bg-gray-800 dark:text-white sm:text-sm"
+            />
+          </div>
+
           <div className="col-span-2">
+            <button
+              type="button"
+              className="mt-6 inline-flex justify-center rounded-md border border-transparent bg-red-500 px-4 py-2 text-base font-medium text-white shadow-sm hover:bg-red-700 focus:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 sm:text-sm"
+              onClick={() => {
+                setSettings({
+                  ...settings,
+                  theme: undefined,
+                  themeCssFile: undefined,
+                });
+              }}
+            >
+              Clear
+            </button>
+          </div>
+
+          <div className="col-span-3">
             <label
               htmlFor="background-color"
               className="block text-sm font-medium text-gray-700 dark:text-gray-200"
             >
-              Color
+              Background Color
             </label>
             <input
               type="color"
@@ -114,12 +170,12 @@ export default function Settings({ settings, setSettings }) {
             />
           </div>
 
-          <div className="col-span-8">
+          <div className="col-span-7">
             <label
               htmlFor="background-image"
               className="block text-sm font-medium text-gray-700 dark:text-gray-200"
             >
-              Image (URL)
+              Background Image (URL)
             </label>
             <input
               type="text"
